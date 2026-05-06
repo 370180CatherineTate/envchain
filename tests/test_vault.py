@@ -76,3 +76,11 @@ def test_vault_destroy(tmp_vault):
     tmp_vault.destroy()
     assert not tmp_vault.vault_path.exists()
     assert tmp_vault.list_keys() == []
+
+
+def test_vault_set_overwrites_existing_key(tmp_vault):
+    """Setting a key twice should update the value, not duplicate it."""
+    tmp_vault.set("API_KEY", "original")
+    tmp_vault.set("API_KEY", "updated")
+    assert tmp_vault.get("API_KEY") == "updated"
+    assert tmp_vault.list_keys().count("API_KEY") == 1
