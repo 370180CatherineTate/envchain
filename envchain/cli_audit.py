@@ -1,71 +1,70 @@
-"""CLI sub-command: envchain audit — view the audit log."""
-
-from __future__ import annotations
-
 import argparse
+import os
 import sys
-import time
 from pathlib import Path
 
 from envchain.auditor import Auditor, AuditorError
 
 
-def build_parser(subparsers=None):
-    description = "View or clear the envchain audit log."
-    if subparsers is not None:
-        parser = subparsers.add_parser("audit", help=description)
-    else:
-        parser = argparse.ArgumentParser(prog="envchain audit", description=description)
-
-    sub = parser.add_subparsers(dest="audit_cmd")
-
-    list_p = sub.add_parser("list", help="List audit log entries")
-    list_p.add_argument(
-        "--event", metavar="EVENT", default=None,
-        help="Filter by event type (e.g. resolve, export)"
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="envchain audit",
+        description="View and manage the envchain audit log",
     )
-    list_p.add_argument(
-        "--data-dir", metavar="DIR", default=None,
-        help="Path to envchain data directory"
+    sub = parser.add_subparsers(dest="audit_cmd", required=True)
+
+    # list
+    ls = sub.add_parser("list", help="List audit log entries")
+    ls.add_argument(
+        "--event",
+        metavar="EVENT",
+        help="Filter by event type (e.g. export, import, vault_set)",
+    )
+    ls.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        metavar="N",
+        help="Maximum number of entries to show (default: 50)",
     )
 
-    clear_p = sub.add_parser("clear", help="Clear all audit log entries")
-    clear_p.add_argument(
-        "--data-dir", metavar="DIR", default=None,
-        help="Path to envchain data directory"
-    )
+    # clear
+    sub.add_parser("clear", help="Clear all audit log entries")
 
     return parser
 
 
 def _default_data_dir() -> Path:
-    return Path.home() / ".envchain"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "envchain"
+    return Path.home() / ".local" / "share" / "envchain"
 
 
-def run(args: argparse.Namespace) -> None:
-    data_dir = Path(args.data_dir) if args.data_dir else _default_data_dir()
-    auditor = Auditor(data_dir)
+def run(argv: list[str] | None = None, data_dir: Path | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
-    if args.audit_cmd == "list":
-        entries = (
-            auditor.filter_by_event(args.event)
-            if args.event
-            else auditor.read_all()
-        )
-        if not entries:
-            print("No audit log entries found.")
-            return
-        for entry in entries:
-            ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(entry["timestamp"]))
-            event = entry.get("event", "unknown")
-            details = {k: v for k, v in entry.items() if k not in ("timestamp", "event")}
-            detail_str = "  ".join(f"{k}={v}" for k, v in details.items())
-            print(f"[{ts}] {event}  {detail_str}")
+    audit_dir = (data_dir or _default_data_dir()) / "audit"
+    auditor = Auditor(audit_dir)
 
-    elif args.audit_cmd == "clear":
-        auditor.clear()
-        print("Audit log cleared.")
+    try:
+        if args.audit_cmd == "list":
+            entries = auditor.read_all(event=args.event)
+            entries = entries[-args.limit :]
+            if not entries:
+                print("No audit log entries found.")
+                return
+            for entry in entries:
+                ts = entry.get("timestamp", "?")
+                event = entry.get("event", "?")
+                detail = entry.get("detail", "")
+                print(f"[{ts}] {event}  {detail}")
 
-    else:
-        build_parser().print_help()
+        elif args.audit_cmd == "clear":
+            auditor.clear()
+            print("Audit log cleared.")
+
+    except AuditorError as exc:
+        print(f"audit error: {exc}", file=sys.stderr)
         sys.exit(1)
