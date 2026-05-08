@@ -69,3 +69,11 @@ def test_bash_escapes_backslash():
 def test_empty_env_produces_empty_string():
     out = Exporter({}).export("bash")
     assert out == ""
+
+
+@pytest.mark.parametrize("fmt", ["bash", "fish", "dotenv"])
+def test_each_format_contains_all_keys(simple_env, fmt):
+    """Ensure no keys are dropped for any supported export format."""
+    out = Exporter(simple_env).export(fmt)
+    for key in simple_env:
+        assert key in out
